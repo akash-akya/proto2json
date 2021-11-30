@@ -23,23 +23,33 @@ import (
 )
 
 const version = "0.1.0"
-const usage = "Usage: proto2json <proto-file>"
+const usage = "Usage: proto2json -proto_path <path> -type <proto-typename>"
 
-var ktStream = flag.Bool("kt_stream", false, "consume from kt stream and decode, Note that value must be encoded as base64 using \"-encodevalue base64\" option")
-var protoRootPath = flag.String("root_path", ".", "root path for proto files")
-var message = flag.String("message", "", "Full proto message name, including package name")
+var protoRootPath = flag.String("proto_path", "", "root path for proto files. Path must contain all proto files including needed for decoding the message")
+var protoType = flag.String("type", "", "complete proto type including package name")
+var ktStream = flag.Bool("kt_stream", false, "consume from stream produced by kt tool and decode. 'value' must be encoded as base64 using \"-encodevalue base64\" option")
+var skipUnpopulated = flag.Bool("skip_unpopulated", false, "whether to emit unpopulated fields such as null, empty-string, empty-list")
 
 func main() {
 	flag.Parse()
 
-	if message == nil || *message == "" {
+	if protoType == nil || *protoType == "" {
 		printUsageDie()
 	}
 
+	if protoRootPath == nil || *protoRootPath == "" {
+		printUsageDie()
+	}
+
+	marshalOpt := protojson.MarshalOptions{
+		UseProtoNames:   true,
+		EmitUnpopulated: !(*skipUnpopulated),
+	}
+
 	if *ktStream {
-		consumeKTStream(*protoRootPath, *message)
+		consumeKTStream(marshalOpt, *protoRootPath, *protoType)
 	} else {
-		consumeStdin(*protoRootPath, *message)
+		consumeStdin(marshalOpt, *protoRootPath, *protoType)
 	}
 }
 
@@ -70,10 +80,10 @@ func listProtoFiles(root string, pattern string) ([]string, error) {
 	return matches, nil
 }
 
-func createProtoRegistry(srcDir string, protoFiles []string) (*protoregistry.Files, error) {
+func createProtoRegistry(protoRootPath string, protoFiles []string) (*protoregistry.Files, error) {
 	tmpFile := "tmp.pb"
 
-	args := []string{"--include_imports", "--descriptor_set_out=" + tmpFile, "-I" + srcDir}
+	args := []string{"--include_imports", "--descriptor_set_out=" + tmpFile, "-I" + protoRootPath}
 	args = append(args, protoFiles...)
 
 	cmd := exec.Command("protoc", args...)
@@ -137,13 +147,15 @@ func decodeBase64(str string) []byte {
 	return data
 }
 
-func consumeKTStream(protoRootPath string, protoName string) {
+func consumeKTStream(marshalOpt protojson.MarshalOptions, protoRootPath string, protoName string) {
+	protoMsg := protoMessage(marshalOpt, protoRootPath, protoName)
+
 	s := bufio.NewScanner(os.Stdin)
 	for s.Scan() {
 		message := s.Text()
 
 		var result map[string]interface{}
-		var binaryValue []byte
+		var data []byte
 		var jsonBytes []byte
 		var tmp map[string]interface{}
 
@@ -152,8 +164,17 @@ func consumeKTStream(protoRootPath string, protoName string) {
 			log.Fatal("error:", err)
 		}
 
-		binaryValue = decodeBase64(result["value"].(string))
-		jsonBytes = readProtoAsJson(binaryValue, protoRootPath, protoName)
+		data = decodeBase64(result["value"].(string))
+
+		err = proto.Unmarshal(data, protoMsg)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		jsonBytes, err = marshalOpt.Marshal(protoMsg)
+		if err != nil {
+			log.Fatal(err)
+		}
 
 		// TODO: avoid duplicate conversion
 		err = json.Unmarshal([]byte(jsonBytes), &tmp)
@@ -172,18 +193,30 @@ func consumeKTStream(protoRootPath string, protoName string) {
 	}
 }
 
-func consumeStdin(protoRootPath string, protoName string) {
+func consumeStdin(marshalOpt protojson.MarshalOptions, protoRootPath string, protoName string) {
 	data, err := ioutil.ReadAll(os.Stdin)
 
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	jsonBytes := readProtoAsJson(data, protoRootPath, protoName)
+	marshalOpt.Indent = "  "
+	protoMsg := protoMessage(marshalOpt, protoRootPath, protoName)
+
+	err = proto.Unmarshal(data, protoMsg)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	jsonBytes, err := marshalOpt.Marshal(protoMsg)
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	fmt.Println(string(jsonBytes))
 }
 
-func readProtoAsJson(in []byte, protoRootPath string, protoName string) []byte {
+func protoMessage(marshalOpt protojson.MarshalOptions, protoRootPath string, protoName string) *dynamicpb.Message {
 	protoFiles, err := listProtoFiles(protoRootPath, "*.proto")
 	if err != nil {
 		log.Fatal(err)
@@ -199,17 +232,5 @@ func readProtoAsJson(in []byte, protoRootPath string, protoName string) []byte {
 		log.Fatal(err)
 	}
 
-	msg := dynamicpb.NewMessage(messageDescriptor)
-
-	err = proto.Unmarshal(in, msg)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	jsonBytes, err := protojson.Marshal(msg)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return jsonBytes
+	return dynamicpb.NewMessage(messageDescriptor)
 }
