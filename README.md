@@ -29,6 +29,15 @@ kt consume -broker 127.0.0.1:9091 -topic sample-topic -encodevalue base64 \
 
 It will replace `value` field with decoded json and stream it to stdout
 
+### Installation
+
+You can download proto2json via the [Releases](https://github.com/akash-akya/proto2json/releases) section.
+
+Alternatively, the usual way via the go tool, for example:
+
+```sh
+ go get -u github.com/akash-akya/proto2json
+```
 
 ### Docker
 
