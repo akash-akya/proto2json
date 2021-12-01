@@ -5,7 +5,7 @@ RUN apk add git --no-cache
 
 RUN go get -u github.com/fgeller/kt
 RUN go get -u github.com/fgeller/jsonify
-RUN go get -u github.com/akash-akya/proto2json
+RUN go get -u github.com/akash-akya/proto2json@v0.2.0
 
 
 FROM alpine:3.8
