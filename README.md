@@ -31,12 +31,15 @@ It will replace `value` field with decoded json and stream it to stdout
 
 ### Installation
 
-You can download proto2json via the [Releases](https://github.com/akash-akya/proto2json/releases) section.
+Ensure you have `protoc` installed. See protoc [installation instructions](https://grpc.io/docs/protoc-installation/).
 
-Alternatively, the usual way via the go tool, for example:
+Then install proto2json using any of the method
+
+* download pre-built binaries via [Releases](https://github.com/akash-akya/proto2json/releases)
+* install using `go get` command
 
 ```sh
- go get -u github.com/akash-akya/proto2json
+go get -u github.com/akash-akya/proto2json
 ```
 
 ### Docker
